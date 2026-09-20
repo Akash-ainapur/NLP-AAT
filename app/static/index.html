@@ -1,0 +1,528 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fake News Detection</title>
+<style>
+  /* ============================================================
+     Design system
+
+     Deference: the article the user pasted is the content. It is
+     never taken off screen; our judgement arrives around it.
+
+     Honesty: this model reports ~99.9% confidence on almost every
+     input, including ones it gets wrong. The result is therefore
+     stated plainly rather than shouted, and the caveat is one
+     disclosure away instead of buried in a README.
+     ============================================================ */
+  :root {
+    /* system greys, light */
+    --bg:           #FFFFFF;
+    --bg-grouped:   #F2F2F7;
+    --fill:         rgba(120,120,128,0.12);
+    --label:        #1C1C1E;
+    --label-2:      rgba(60,60,67,0.60);
+    --label-3:      rgba(60,60,67,0.30);
+    --separator:    rgba(60,60,67,0.18);
+
+    --accent:       #0B6BCB;
+    --danger:       #C7392B;
+    --danger-bg:    rgba(199,57,43,0.08);
+    --success:      #2C7A4B;
+    --success-bg:   rgba(44,122,75,0.08);
+
+    /* type scale (iOS text styles) */
+    --t-large:    34px;
+    --t-title:    22px;
+    --t-headline: 17px;
+    --t-body:     17px;
+    --t-subhead:  15px;
+    --t-footnote: 13px;
+    --t-caption:  12px;
+
+    /* 8pt grid */
+    --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px;
+    --s5: 24px; --s6: 32px; --s7: 48px; --s8: 64px;
+
+    --radius:    18px;
+    --radius-sm: 12px;
+
+    /* SF Pro on Apple hardware; Segoe UI elsewhere. No webfont: this
+       has to keep working with the network off. */
+    --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI",
+            system-ui, Roboto, Helvetica, Arial, sans-serif;
+
+    --ease: cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:         #000000;
+      --bg-grouped: #1C1C1E;
+      --fill:       rgba(120,120,128,0.24);
+      --label:      #FFFFFF;
+      --label-2:    rgba(235,235,245,0.60);
+      --label-3:    rgba(235,235,245,0.30);
+      --separator:  rgba(84,84,88,0.65);
+
+      --accent:     #4A9EFF;
+      --danger:     #FF6961;
+      --danger-bg:  rgba(255,105,97,0.14);
+      --success:    #4FD26F;
+      --success-bg: rgba(79,210,111,0.14);
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--label);
+    font-family: var(--font);
+    font-size: var(--t-body);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  .nav {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    padding: var(--s3) var(--s5);
+    font-size: var(--t-footnote);
+    font-weight: 600;
+    color: var(--label-2);
+    background: color-mix(in srgb, var(--bg) 82%, transparent);
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    border-bottom: 1px solid var(--separator);
+  }
+
+  main {
+    max-width: 680px;
+    margin: 0 auto;
+    padding: var(--s7) var(--s5) var(--s8);
+  }
+
+  h1 {
+    margin: 0 0 var(--s2);
+    font-size: var(--t-large);
+    font-weight: 700;
+    letter-spacing: -0.022em;
+    line-height: 1.2;
+  }
+
+  .subtitle {
+    margin: 0 0 var(--s6);
+    font-size: var(--t-subhead);
+    color: var(--label-2);
+    max-width: 46ch;
+  }
+
+  /* ---------------- result -------------------------------------- */
+  .result { margin-bottom: var(--s5); }
+  .result[hidden] { display: none; }
+
+  .result.enter {
+    animation: rise 420ms var(--ease) both;
+  }
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(10px) scale(0.985); }
+    to   { opacity: 1; transform: none; }
+  }
+
+  .card {
+    padding: var(--s5);
+    border-radius: var(--radius);
+    background: var(--bg-grouped);
+  }
+  .card[data-verdict="FAKE"] { background: var(--danger-bg); }
+  .card[data-verdict="REAL"] { background: var(--success-bg); }
+
+  .card-head { display: flex; gap: var(--s4); align-items: flex-start; }
+
+  .glyph { flex: 0 0 auto; margin-top: 1px; }
+  .card[data-verdict="FAKE"] .glyph { color: var(--danger); }
+  .card[data-verdict="REAL"] .glyph { color: var(--success); }
+
+  .verdict {
+    margin: 0;
+    font-size: var(--t-title);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1.25;
+  }
+  .card[data-verdict="FAKE"] .verdict { color: var(--danger); }
+  .card[data-verdict="REAL"] .verdict { color: var(--success); }
+
+  .verdict-sub {
+    margin: var(--s1) 0 0;
+    font-size: var(--t-subhead);
+    color: var(--label-2);
+  }
+
+  .meter {
+    margin-top: var(--s4);
+    height: 6px;
+    border-radius: 3px;
+    background: var(--fill);
+    overflow: hidden;
+  }
+  .meter span {
+    display: block;
+    height: 100%;
+    width: 0;
+    border-radius: 3px;
+    background: currentColor;
+    transition: width 700ms var(--ease);
+  }
+  .card[data-verdict="FAKE"] .meter { color: var(--danger); }
+  .card[data-verdict="REAL"] .meter { color: var(--success); }
+
+  /* honest caveat, one disclosure away */
+  details {
+    margin-top: var(--s4);
+    border-top: 1px solid var(--separator);
+    padding-top: var(--s3);
+  }
+  summary {
+    cursor: pointer;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: var(--s2);
+    font-size: var(--t-footnote);
+    font-weight: 500;
+    color: var(--label-2);
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::after {
+    content: "";
+    width: 6px; height: 6px;
+    margin-left: auto;
+    border-right: 1.5px solid var(--label-3);
+    border-bottom: 1.5px solid var(--label-3);
+    transform: rotate(45deg);
+    transition: transform 240ms var(--ease);
+  }
+  details[open] summary::after { transform: rotate(-135deg); }
+  details p {
+    margin: var(--s3) 0 0;
+    font-size: var(--t-footnote);
+    color: var(--label-2);
+    max-width: 54ch;
+  }
+
+  .card-meta {
+    margin: var(--s3) 0 0;
+    font-size: var(--t-caption);
+    color: var(--label-3);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ---------------- composer ------------------------------------ */
+  .composer {
+    border: 1px solid var(--separator);
+    border-radius: var(--radius);
+    background: var(--bg);
+    transition: border-color 200ms var(--ease);
+  }
+  .composer:focus-within { border-color: var(--accent); }
+
+  textarea {
+    display: block;
+    width: 100%;
+    min-height: 200px;
+    padding: var(--s4) var(--s4) var(--s2);
+    border: 0;
+    outline: 0;
+    resize: vertical;
+    background: transparent;
+    color: var(--label);
+    font-family: inherit;
+    font-size: var(--t-body);
+    line-height: 1.6;
+  }
+  textarea::placeholder { color: var(--label-3); }
+
+  .composer-foot {
+    display: flex;
+    justify-content: flex-end;
+    padding: 0 var(--s4) var(--s3);
+    font-size: var(--t-caption);
+    color: var(--label-3);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .actions {
+    margin-top: var(--s4);
+    display: flex;
+    align-items: center;
+    gap: var(--s4);
+    flex-wrap: wrap;
+  }
+
+  button { font-family: inherit; cursor: pointer; }
+
+  .btn {
+    padding: 11px 22px;
+    border: 0;
+    border-radius: 980px;
+    background: var(--accent);
+    color: #fff;
+    font-size: var(--t-headline);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    transition: opacity 160ms var(--ease), transform 160ms var(--ease);
+  }
+  .btn:hover  { opacity: 0.88; }
+  .btn:active { transform: scale(0.97); }
+  .btn:disabled { opacity: 0.4; cursor: default; transform: none; }
+
+  .btn-plain {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--accent);
+    font-size: var(--t-subhead);
+    font-weight: 500;
+  }
+  .btn-plain:hover { opacity: 0.7; }
+
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
+
+  /* ---------------- samples ------------------------------------- */
+  .samples {
+    margin-top: var(--s4);
+    border: 1px solid var(--separator);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+  }
+  .samples[hidden] { display: none; }
+  .samples button {
+    display: block;
+    width: 100%;
+    padding: var(--s3) var(--s4);
+    border: 0;
+    border-bottom: 1px solid var(--separator);
+    background: none;
+    color: var(--label);
+    font-size: var(--t-subhead);
+    text-align: left;
+    transition: background 160ms var(--ease);
+  }
+  .samples button:last-child { border-bottom: 0; }
+  .samples button:hover { background: var(--fill); }
+
+  .error {
+    margin: var(--s4) 0 0;
+    font-size: var(--t-footnote);
+    color: var(--danger);
+  }
+  .error[hidden] { display: none; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::after { animation: none !important; transition: none !important; }
+  }
+
+  @media (max-width: 520px) {
+    main { padding: var(--s6) var(--s4) var(--s7); }
+    h1 { font-size: 28px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="nav">Fake News Detection</div>
+
+<main>
+  <h1>Check an article</h1>
+  <p class="subtitle">
+    Paste a news story below. It is compared against patterns learned from
+    thousands of labelled articles.
+  </p>
+
+  <section id="result" class="result" hidden aria-live="polite">
+    <div id="card" class="card">
+      <div class="card-head">
+        <span id="glyph" class="glyph"></span>
+        <div>
+          <h2 id="verdict" class="verdict"></h2>
+          <p id="verdictSub" class="verdict-sub"></p>
+        </div>
+      </div>
+
+      <div class="meter"><span id="meterFill"></span></div>
+
+      <details>
+        <summary>How much should you trust this?</summary>
+        <p id="caveat"></p>
+      </details>
+
+      <p id="cardMeta" class="card-meta"></p>
+    </div>
+  </section>
+
+  <div class="composer">
+    <textarea id="text" placeholder="Paste the article text…"
+              aria-label="Article text" autofocus></textarea>
+    <div class="composer-foot"><span id="wordCount">0 words</span></div>
+  </div>
+
+  <div class="actions">
+    <button id="submit" class="btn">Analyse</button>
+    <button id="toggleSamples" class="btn-plain">Try an example</button>
+  </div>
+
+  <div id="sampleList" class="samples" hidden></div>
+  <p id="error" class="error" role="alert" hidden></p>
+</main>
+
+<script>
+const el = (id) => document.getElementById(id);
+const textarea = el("text");
+const submit = el("submit");
+const errorBox = el("error");
+const result = el("result");
+
+const MIN_CHARS = 40;
+let samples = [];
+
+const GLYPH = {
+  FAKE: '<svg width="26" height="26" viewBox="0 0 26 26" fill="none" aria-hidden="true">' +
+        '<circle cx="13" cy="13" r="11" stroke="currentColor" stroke-width="1.8"/>' +
+        '<path d="M13 7.5v7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>' +
+        '<circle cx="13" cy="18" r="1.15" fill="currentColor"/></svg>',
+  REAL: '<svg width="26" height="26" viewBox="0 0 26 26" fill="none" aria-hidden="true">' +
+        '<circle cx="13" cy="13" r="11" stroke="currentColor" stroke-width="1.8"/>' +
+        '<path d="M8.5 13.4l3 3 6-6.4" stroke="currentColor" stroke-width="1.8" ' +
+        'stroke-linecap="round" stroke-linejoin="round"/></svg>',
+};
+
+const COPY = {
+  FAKE: "Reads like fabricated news",
+  REAL: "Reads like genuine reporting",
+};
+
+function countWords(value) {
+  const trimmed = value.trim();
+  return trimmed ? trimmed.split(/\s+/).length : 0;
+}
+
+function updateWordCount() {
+  const n = countWords(textarea.value);
+  el("wordCount").textContent = n === 1 ? "1 word" : n + " words";
+}
+
+function showError(message) {
+  errorBox.textContent = message;
+  errorBox.hidden = false;
+}
+
+async function analyse() {
+  const text = textarea.value.trim();
+  errorBox.hidden = true;
+
+  if (text.length < MIN_CHARS) {
+    showError("Paste a longer article — at least a couple of sentences.");
+    return;
+  }
+
+  submit.disabled = true;
+  submit.textContent = "Analysing…";
+
+  try {
+    const response = await fetch("/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.detail || "Something went wrong.");
+    }
+    render(await response.json());
+  } catch (err) {
+    showError(err.message);
+  } finally {
+    submit.disabled = false;
+    submit.textContent = "Analyse";
+  }
+}
+
+function render(data) {
+  const percent = Math.round(data.confidence * 100);
+
+  el("card").dataset.verdict = data.verdict;
+  el("glyph").innerHTML = GLYPH[data.verdict];
+  el("verdict").textContent = COPY[data.verdict];
+  el("verdictSub").textContent = percent + "% confidence";
+
+  /* State the number, then immediately qualify it. This model returns
+     near-total confidence on almost every input, so an unqualified
+     percentage would read as precision it does not have. */
+  el("caveat").textContent =
+    "It judges writing style, not facts — it cannot check whether a claim is " +
+    "true. It also reports around " + percent + "% on almost every article, " +
+    "including ones it gets wrong, so read this as a signal worth checking, " +
+    "not a verdict.";
+
+  el("cardMeta").textContent =
+    (data.served_by === "hf_api" ? "Hugging Face Inference" : "Local model") +
+    " · " + data.latency_ms + " ms";
+
+  result.hidden = false;
+  result.classList.remove("enter");
+  void result.offsetWidth;          // restart the entry animation
+  result.classList.add("enter");
+
+  el("meterFill").style.width = "0";
+  setTimeout(() => { el("meterFill").style.width = percent + "%"; }, 80);
+
+  result.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+async function loadSamples() {
+  if (samples.length) return;
+  samples = await fetch("/samples").then((r) => r.json());
+  const list = el("sampleList");
+  samples.forEach((sample) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = sample.title;
+    button.addEventListener("click", () => {
+      textarea.value = sample.text;
+      // Setting .value drops the caret at the end, and a focused textarea
+      // scrolls to its caret - which would show the article from its last
+      // line. Move the caret first, then the scroll reset sticks.
+      textarea.setSelectionRange(0, 0);
+      textarea.scrollTop = 0;
+      updateWordCount();
+      list.hidden = true;
+      analyse();
+    });
+    list.appendChild(button);
+  });
+}
+
+el("toggleSamples").addEventListener("click", async () => {
+  const list = el("sampleList");
+  await loadSamples();
+  list.hidden = !list.hidden;
+});
+
+submit.addEventListener("click", analyse);
+textarea.addEventListener("input", updateWordCount);
+
+/* Cmd/Ctrl+Enter submits, so a demo never needs the mouse. */
+textarea.addEventListener("keydown", (event) => {
+  if ((event.metaKey || event.ctrlKey) && event.key === "Enter") analyse();
+});
+
+updateWordCount();
+</script>
+</body>
+</html>
