@@ -80,12 +80,27 @@ ordinary real news that simply did not match the style of its training data.
 
 It should be read as a signal, not a verdict. See `report/report.md`.
 
+## Deploy to Vercel
+
+This repository is structured for zero-configuration deployment to [Vercel](https://vercel.com):
+
+1. **Push to GitHub** (or run `npx vercel` locally).
+2. **Import project into Vercel**.
+3. **Set Environment Variable (Recommended):**
+   - In Vercel Project Settings $\rightarrow$ Environment Variables, add:
+     - `HF_TOKEN`: Your Hugging Face Inference API token.
+
+*Note: Serverless deployments use `requirements.txt` (lightweight hosted inference). For local model caching and evaluation scripts, install `requirements-local.txt` (`pip install -r requirements-local.txt`).*
+
 ## Layout
 
 ```
+api/index.py          Vercel serverless entrypoint
+vercel.json           Vercel deployment route configuration
 app/classifier.py     hosted call, local fallback, label mapping
 app/main.py           FastAPI routes
 app/static/index.html the whole frontend
 samples/examples.json six demo articles
 evaluate.py           metrics for the report
 ```
+

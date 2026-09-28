@@ -59,10 +59,7 @@ def _classify_hosted(text):
     from huggingface_hub import InferenceClient
 
     token = os.getenv("HF_TOKEN")
-    if not token:
-        raise RuntimeError("HF_TOKEN is not set")
-
-    client = InferenceClient(token=token, timeout=HF_TIMEOUT_SECONDS)
+    client = InferenceClient(token=token if token else None, timeout=HF_TIMEOUT_SECONDS)
     return _pick_top(client.text_classification(text, model=MODEL_ID))
 
 
@@ -70,7 +67,12 @@ def _load_local():
     global _local_pipeline
     with _local_lock:
         if _local_pipeline is None:
-            from transformers import pipeline
+            try:
+                from transformers import pipeline
+            except ImportError as exc:
+                raise RuntimeError(
+                    "Local transformers package is not installed in this environment."
+                ) from exc
 
             log.info("loading local model %s (one-time, ~60s)", MODEL_ID)
             _local_pipeline = pipeline(
@@ -84,7 +86,7 @@ def _classify_local(text):
 
 
 def analyze(text):
-    """Classify one article. Never raises for transport failures alone."""
+    """Classify one article. Gracefully attempts hosted API then local model fallback."""
     text = truncate_words(text.strip())
     started = time.perf_counter()
 
@@ -92,9 +94,18 @@ def analyze(text):
         label, score = _classify_hosted(text)
         served_by = "hf_api"
     except Exception as exc:
-        log.warning("hosted inference unavailable (%s); using local model", exc)
-        label, score = _classify_local(text)
-        served_by = "local"
+        log.warning("hosted inference unavailable (%s); attempting local fallback", exc)
+        try:
+            label, score = _classify_local(text)
+            served_by = "local"
+        except Exception as local_exc:
+            log.error("both hosted and local inference failed: %s | %s", exc, local_exc)
+            from fastapi import HTTPException
+
+            raise HTTPException(
+                status_code=503,
+                detail=f"Inference service currently unavailable. (Hosted API error: {exc})",
+            ) from exc
 
     verdict, confidence = _normalise(label, score)
     return {
@@ -106,5 +117,9 @@ def analyze(text):
 
 
 def warm_local():
-    """Pre-load the local model so demo-day fallback is instant."""
-    _classify_local("warmup")
+    """Pre-load the local model if transformers library is available."""
+    try:
+        _classify_local("warmup")
+    except Exception as exc:
+        log.info("local model warmup skipped: %s", exc)
+
