@@ -106,12 +106,7 @@ def _load_local():
     global _local_pipeline
     with _local_lock:
         if _local_pipeline is None:
-            try:
-                from transformers import pipeline
-            except ImportError as exc:
-                raise RuntimeError(
-                    "Local transformers package is not installed in this environment."
-                ) from exc
+            from transformers import pipeline
 
             log.info("loading local model %s (one-time, ~60s)", MODEL_ID)
             _local_pipeline = pipeline(
@@ -125,7 +120,7 @@ def _classify_local(text):
 
 
 def analyze(text):
-    """Classify one article. Gracefully attempts hosted API then local model fallback."""
+    """Classify one article. Never raises for transport failures alone."""
     text = truncate_words(text.strip())
     started = time.perf_counter()
 
@@ -133,20 +128,9 @@ def analyze(text):
         label, score = _classify_hosted(text)
         served_by = "hf_api"
     except Exception as exc:
-        err_msg = str(exc) or repr(exc)
-        log.warning("hosted inference unavailable (%s); attempting local fallback", err_msg)
-        try:
-            label, score = _classify_local(text)
-            served_by = "local"
-        except Exception as local_exc:
-            local_msg = str(local_exc) or repr(local_exc)
-            log.error("both hosted and local inference failed: %s | %s", err_msg, local_msg)
-            from fastapi import HTTPException
-
-            raise HTTPException(
-                status_code=503,
-                detail=f"Inference service currently unavailable. (Hosted API error: {err_msg})",
-            ) from exc
+        log.warning("hosted inference unavailable (%s); using local model", exc)
+        label, score = _classify_local(text)
+        served_by = "local"
 
     verdict, confidence = _normalise(label, score)
     return {
@@ -157,11 +141,6 @@ def analyze(text):
     }
 
 
-
 def warm_local():
-    """Pre-load the local model if transformers library is available."""
-    try:
-        _classify_local("warmup")
-    except Exception as exc:
-        log.info("local model warmup skipped: %s", exc)
-
+    """Pre-load the local model so demo-day fallback is instant."""
+    _classify_local("warmup")
