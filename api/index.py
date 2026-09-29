@@ -1,0 +1,9 @@
+import sys
+from pathlib import Path
+
+# Ensure the project root is on sys.path so `app` package is importable
+_root = Path(__file__).resolve().parent.parent
+if str(_root) not in sys.path:
+    sys.path.insert(0, str(_root))
+
+from app.main import app  # noqa: F401  — Vercel looks for top-level `app`

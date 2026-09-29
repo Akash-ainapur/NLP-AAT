@@ -164,20 +164,74 @@
     color: var(--label-2);
   }
 
-  .meter {
+  /* ------------ confidence score block -------------------------- */
+  .confidence-block {
     margin-top: var(--s4);
-    height: 6px;
-    border-radius: 3px;
-    background: var(--fill);
-    overflow: hidden;
+    padding: var(--s3) var(--s4);
+    border-radius: var(--radius-sm);
+    background: rgba(0,0,0,0.04);
+    display: flex;
+    align-items: center;
+    gap: var(--s4);
   }
-  .meter span {
-    display: block;
-    height: 100%;
-    width: 0;
-    border-radius: 3px;
-    background: currentColor;
-    transition: width 700ms var(--ease);
+  @media (prefers-color-scheme: dark) {
+    .confidence-block { background: rgba(255,255,255,0.06); }
+  }
+
+  .confidence-big {
+    font-size: 42px;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    flex: 0 0 auto;
+  }
+  .card[data-verdict="FAKE"] .confidence-big { color: var(--danger); }
+  .card[data-verdict="REAL"] .confidence-big { color: var(--success); }
+
+  .confidence-right {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .confidence-label {
+    font-size: var(--t-footnote);
+    font-weight: 600;
+    color: var(--label-2);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin: 0 0 var(--s1);
+  }
+
+  .confidence-decimal {
+    font-size: var(--t-footnote);
+    color: var(--label-3);
+    font-variant-numeric: tabular-nums;
+    margin: 0 0 var(--s2);
+  }
+
+  /* segmented bar */
+  .seg-bar {
+    display: flex;
+    gap: 3px;
+    height: 10px;
+  }
+  .seg-bar span {
+    flex: 1;
+    border-radius: 2px;
+    background: var(--fill);
+    transition: background 600ms var(--ease), transform 600ms var(--ease);
+    transform: scaleY(0.5);
+    transform-origin: bottom;
+  }
+  .seg-bar span.lit {
+    transform: scaleY(1);
+  }
+  .card[data-verdict="FAKE"] .seg-bar span.lit { background: var(--danger); }
+  .card[data-verdict="REAL"] .seg-bar span.lit { background: var(--success); }
+
+  .meter {
+    display: none;  /* hidden — replaced by segmented bar above */
   }
   .card[data-verdict="FAKE"] .meter { color: var(--danger); }
   .card[data-verdict="REAL"] .meter { color: var(--success); }
@@ -355,6 +409,16 @@
         </div>
       </div>
 
+      <!-- Confidence Score Block -->
+      <div class="confidence-block">
+        <span id="confidenceBig" class="confidence-big">—</span>
+        <div class="confidence-right">
+          <p class="confidence-label">Model Confidence</p>
+          <p id="confidenceDecimal" class="confidence-decimal">raw score: —</p>
+          <div id="segBar" class="seg-bar" aria-hidden="true"></div>
+        </div>
+      </div>
+
       <div class="meter"><span id="meterFill"></span></div>
 
       <details>
@@ -455,20 +519,52 @@ async function analyse() {
 
 function render(data) {
   const percent = Math.round(data.confidence * 100);
+  const raw = data.confidence.toFixed(4);
 
   el("card").dataset.verdict = data.verdict;
   el("glyph").innerHTML = GLYPH[data.verdict];
   el("verdict").textContent = COPY[data.verdict];
-  el("verdictSub").textContent = percent + "% confidence";
+  el("verdictSub").textContent = data.verdict === "FAKE" ? "Likely fabricated" : "Likely genuine";
 
-  /* State the number, then immediately qualify it. This model returns
-     near-total confidence on almost every input, so an unqualified
-     percentage would read as precision it does not have. */
+  // --- Confidence Score Block ---
+  // Animate the big number counting up
+  const bigEl = el("confidenceBig");
+  bigEl.textContent = "0%";
+  const target = percent;
+  let current = 0;
+  const step = Math.ceil(target / 30);
+  const counter = setInterval(() => {
+    current = Math.min(current + step, target);
+    bigEl.textContent = current + "%";
+    if (current >= target) clearInterval(counter);
+  }, 20);
+
+  el("confidenceDecimal").textContent = "raw score: " + raw;
+
+  // Build segmented bar (20 segments)
+  const segBar = el("segBar");
+  segBar.innerHTML = "";
+  const SEGS = 20;
+  const litCount = Math.round((percent / 100) * SEGS);
+  for (let i = 0; i < SEGS; i++) {
+    const seg = document.createElement("span");
+    segBar.appendChild(seg);
+  }
+  // Light up segments with a stagger delay
+  setTimeout(() => {
+    Array.from(segBar.children).forEach((seg, i) => {
+      if (i < litCount) {
+        setTimeout(() => seg.classList.add("lit"), i * 25);
+      }
+    });
+  }, 80);
+
+  /* Caveat */
   el("caveat").textContent =
-    "It judges writing style, not facts — it cannot check whether a claim is " +
-    "true. It also reports around " + percent + "% on almost every article, " +
-    "including ones it gets wrong, so read this as a signal worth checking, " +
-    "not a verdict.";
+    "It judges writing style, not facts — it cannot verify whether a claim is " +
+    "true. Confidence near " + percent + "% does not mean the verdict is correct — " +
+    "this model often reports high scores on articles it gets wrong. " +
+    "Treat this as a signal worth investigating, not a final verdict.";
 
   el("cardMeta").textContent =
     (data.served_by === "hf_api" ? "Hugging Face Inference" : "Local model") +

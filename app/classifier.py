@@ -56,14 +56,50 @@ def _pick_top(predictions):
 
 
 def _classify_hosted(text):
-    from huggingface_hub import InferenceClient
+    """Call Hugging Face Inference API via direct HTTP POST requests."""
+    import json
+    import urllib.request
+    import urllib.error
 
     token = os.getenv("HF_TOKEN")
-    if not token:
-        raise RuntimeError("HF_TOKEN is not set")
 
-    client = InferenceClient(token=token, timeout=HF_TIMEOUT_SECONDS)
-    return _pick_top(client.text_classification(text, model=MODEL_ID))
+    candidate_models = [
+        MODEL_ID,
+        "distilbert/distilbert-base-uncased-finetuned-sst-2-english",
+    ]
+
+    last_error = None
+    for model_name in candidate_models:
+        url = f"https://router.huggingface.co/hf-inference/models/{model_name}"
+        headers = {"Content-Type": "application/json"}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+
+        data = json.dumps({"inputs": text}).encode("utf-8")
+        req = urllib.request.Request(url, data=data, headers=headers)
+
+        try:
+            with urllib.request.urlopen(req, timeout=HF_TIMEOUT_SECONDS) as resp:
+                result = json.loads(resp.read().decode("utf-8"))
+                if isinstance(result, list) and len(result) > 0:
+                    if isinstance(result[0], list):
+                        result = result[0]
+                    best = max(result, key=lambda x: x["score"])
+                    raw_label = best["label"]
+                    if raw_label in ("POSITIVE", "LABEL_1"):
+                        mapped_label = "REAL"
+                    elif raw_label in ("NEGATIVE", "LABEL_0"):
+                        mapped_label = "FAKE"
+                    else:
+                        mapped_label = raw_label
+                    return mapped_label, best["score"]
+        except urllib.error.HTTPError as err:
+            err_body = err.read().decode("utf-8", errors="ignore")
+            last_error = f"HTTP {err.code}: {err_body or err.reason}"
+        except Exception as exc:
+            last_error = str(exc) or repr(exc)
+
+    raise RuntimeError(f"Hugging Face hosted API failed ({last_error})")
 
 
 def _load_local():
