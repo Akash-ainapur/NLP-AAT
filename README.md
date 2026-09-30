@@ -1,27 +1,34 @@
 # Fake News Detection
 
-A web service that classifies a news article as likely fake or likely real,
-built on a pretrained BERT classifier from Hugging Face.
+A web service that judges whether a news article is real or fake and says how
+sure it is, using Google's Gemini API with Google Search grounding.
 
-- **Model:** [`jy46604790/Fake-News-Bert-Detect`](https://huggingface.co/jy46604790/Fake-News-Bert-Detect)
+- **Model:** `gemini-2.5-flash` (configurable)
 - **Backend:** FastAPI
 - **Frontend:** one page, vanilla HTML/CSS/JS, no build step
 
-No model was trained for this project. An existing fine-tuned checkpoint is
-integrated into a web application.
+The earlier version used a BERT classifier that judged writing style and
+flagged neutral recent news as fake. It was replaced by an LLM that reasons
+about the claim and checks it against live Google Search results.
 
 ## Setup
 
 ```bash
 pip install -r requirements.txt
-cp .env.example .env        # then paste your token into .env
+cp .env.example .env        # then paste your Gemini key into .env
 ```
 
-Get a token at <https://huggingface.co/settings/tokens> — a **fine-grained**
-token with the *"Make calls to Inference Providers"* permission.
+Get a free key at <https://aistudio.google.com/apikey>. Settings in `.env`:
 
-The token is optional. Without it the app falls back to running the model
-locally, which works exactly the same but downloads ~440 MB on first use.
+| Variable | Meaning |
+|---|---|
+| `GEMINI_API_KEY` | required |
+| `GEMINI_MODEL` | default `gemini-2.5-flash` |
+| `USE_WEB_SEARCH` | `true` turns on Google Search grounding (needed for today's news) |
+
+Google Search grounding is free on the free tier only for the 2.5 Flash and
+Flash-Lite models (up to 500 requests a day). Gemini 3.x models need a paid
+tier for it.
 
 ## Run
 
@@ -31,23 +38,16 @@ python -m uvicorn app.main:app --reload
 
 Open <http://127.0.0.1:8000>.
 
-## How it handles failure
+## Output
 
-Every request tries the hosted Hugging Face API first and falls back to a
-local copy of the same model if that fails for any reason — cold start, rate
-limit, expired token, no internet. The response says which path served it,
-and the page shows it in small text under the result.
+`POST /analyze` returns only:
 
-The local model is loaded in a background thread when the server boots, so
-the one-time ~60 s load never lands in the middle of a demo.
+```json
+{"verdict": "REAL", "confidence": 87, "model": "gemini-2.5-flash", "latency_ms": 2400}
+```
 
-## Before demo day
-
-1. Start the server once **with internet** so the model is downloaded and cached.
-2. Wait for `local fallback model ready` in the log.
-3. Turn the wifi off and run a sample. It must still work.
-
-If step 3 works, nothing on the network can break the demo.
+`verdict` is `REAL`, `FAKE` or `UNCERTAIN` (hard to tell). If the API fails
+the endpoint returns HTTP 502 with a readable message.
 
 ## Evaluation
 
@@ -63,29 +63,22 @@ Needs a labelled dataset. Download the
 and unzip it to `data/True.csv` and `data/Fake.csv`, or supply your own CSV
 with `text` and `label` columns via `--csv`.
 
-Evaluation deliberately runs against the local model: a few hundred hosted
-calls would be slow and would consume the free-tier daily quota.
+Each article is one API call, so keep `--limit` small to stay inside the free quota. `UNCERTAIN` is
+reported separately and counts as not matching the label.
 
-## Known limitation
+## Known limitations
 
-The model was fine-tuned on a specific English news dataset whose real
-articles come largely from wire services. It is therefore sensitive to
-**writing style** rather than to whether a claim is actually true.
-
-In testing, it correctly flagged sensationalist fake articles at high
-confidence and correctly passed wire-service-style political and economic
-reporting — but misclassified a neutrally written article about a court
-hearing, and a neutral article about a university study, as fake. Both were
-ordinary real news that simply did not match the style of its training data.
-
-It should be read as a signal, not a verdict. See `report/report.md`.
+- The confidence is the model's own estimate, not a measured accuracy.
+- With `USE_WEB_SEARCH=false` the model cannot know events after its training
+  cutoff, so keep it on for current news.
+- Needs internet and an API key. Read the result as a signal, not a verdict.
 
 ## Layout
 
 ```
-app/classifier.py     hosted call, local fallback, label mapping
+app/detector.py       Settings, GeminiClient, FakeNewsDetector
 app/main.py           FastAPI routes
 app/static/index.html the whole frontend
-samples/examples.json six demo articles
+samples/examples.json eight demo articles
 evaluate.py           metrics for the report
 ```

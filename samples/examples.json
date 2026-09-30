@@ -34,5 +34,17 @@
     "title": "Man builds engine that runs on water, government seizes it",
     "expected": "FAKE",
     "text": "UNBELIEVABLE: A retired mechanic says he has built a working engine that runs entirely on ordinary tap water, and government agents seized it from his garage just days later. The man claims he drove his converted car over eight hundred kilometres on a single bucket of water before officials arrived with no warrant and took everything. Oil industry executives are said to be terrified that the technology could collapse fuel markets overnight. His neighbours confirm they saw the vehicle running and heard the engine themselves. Experts who have seen the blueprints say the design is deceptively simple and could have been built decades ago. The inventor says he has been followed ever since and that his phone has been tapped. This is the invention they never wanted you to see. Share it everywhere before this post disappears!"
+  },
+  {
+    "id": "court",
+    "title": "Court adjourns hearing in land dispute case",
+    "expected": "REAL",
+    "text": "A district court on Tuesday adjourned hearings in a long-running land dispute after counsel for the state requested additional time to file documents. The judge granted two weeks and directed both parties to submit written arguments before the next date. Lawyers for the petitioners said they were prepared to proceed but did not object. The case, first filed four years ago, concerns the ownership of a parcel on the outskirts of the city."
+  },
+  {
+    "id": "study",
+    "title": "University study links sleep schedule to exam performance",
+    "expected": "REAL",
+    "text": "Researchers at a public university have published a study of 1,200 undergraduates finding that students with consistent sleep schedules scored modestly higher on end-of-term exams than those with irregular sleep. The authors caution that the study is observational and cannot show cause and effect. The findings appeared in a peer-reviewed journal this month, and the team plans a follow-up trial with a wider group of institutions."
   }
 ]

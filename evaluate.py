@@ -1,7 +1,7 @@
 """Score the classifier on a labelled sample so the report has a results table.
 
-Evaluation runs against the local model rather than the hosted API: a few
-hundred calls would be slow and would eat the free-tier daily quota.
+Each article is one Gemini call, so keep --limit small (cost and rate
+limits). UNCERTAIN verdicts are counted separately and never match a label.
 
 Usage:
     python evaluate.py                 # uses data/True.csv + data/Fake.csv (ISOT)
@@ -16,7 +16,7 @@ from pathlib import Path
 import pandas as pd
 from sklearn.metrics import classification_report, confusion_matrix
 
-from app.classifier import MODEL_ID, LABEL_MAP, truncate_words
+from app.detector import DetectorError, FakeNewsDetector
 
 DATA_DIR = Path("data")
 ISOT_REAL = DATA_DIR / "True.csv"
@@ -63,7 +63,7 @@ def load_csv(path, limit):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--limit", type=int, default=50, help="articles to score")
+    parser.add_argument("--limit", type=int, default=20, help="articles to score")
     parser.add_argument("--csv", type=Path, help="labelled CSV with text,label columns")
     parser.add_argument("--out", type=Path, default=Path("results.csv"))
     args = parser.parse_args()
@@ -75,26 +75,35 @@ def main():
     else:
         sys.exit(DOWNLOAD_HINT)
 
-    from transformers import pipeline
+    detector = FakeNewsDetector()
+    print(f"scoring {len(data)} articles with {detector.client.model_id} ...")
 
-    print(f"loading {MODEL_ID} ...")
-    clf = pipeline("text-classification", model=MODEL_ID, tokenizer=MODEL_ID, truncation=True)
+    predicted, confidence = [], []
+    for i, text in enumerate(data["text"], 1):
+        try:
+            result = detector.analyze(str(text))
+        except DetectorError as exc:
+            print(f"  article {i}: {exc}")
+            result = {"verdict": "ERROR", "confidence": 0}
+        predicted.append(result["verdict"])
+        confidence.append(result["confidence"])
 
-    texts = [truncate_words(str(t)) for t in data["text"]]
-    print(f"scoring {len(texts)} articles ...")
-    predictions = clf(texts, batch_size=8)
-
-    data["predicted"] = [LABEL_MAP.get(p["label"], p["label"]) for p in predictions]
-    data["confidence"] = [round(p["score"], 4) for p in predictions]
+    data["predicted"] = predicted
+    data["confidence"] = confidence
 
     accuracy = (data["predicted"] == data["label"]).mean()
 
-    print(f"\nModel:    {MODEL_ID}")
+    print(f"\nModel:    {detector.client.model_id}")
     print(f"Articles: {len(data)}")
-    print(f"Accuracy: {accuracy:.3f}\n")
-    print(classification_report(data["label"], data["predicted"], digits=3))
-    print("Confusion matrix (rows = actual FAKE, REAL / cols = predicted):")
-    print(confusion_matrix(data["label"], data["predicted"], labels=["FAKE", "REAL"]))
+    print(f"Accuracy: {accuracy:.3f}  (UNCERTAIN/ERROR count as wrong)")
+    print(f"Uncertain: {(data['predicted'] == 'UNCERTAIN').sum()}  "
+          f"Errors: {(data['predicted'] == 'ERROR').sum()}\n")
+    labels = ["FAKE", "REAL", "UNCERTAIN", "ERROR"]
+    print(classification_report(data["label"], data["predicted"], labels=["FAKE", "REAL"],
+                                digits=3, zero_division=0))
+    print("Confusion matrix (rows = actual FAKE, REAL / cols = predicted "
+          + ", ".join(labels) + "):")
+    print(confusion_matrix(data["label"], data["predicted"], labels=labels)[:2])
 
     data.to_csv(args.out, index=False)
     print(f"\nper-article results written to {args.out}")

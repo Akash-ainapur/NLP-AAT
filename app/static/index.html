@@ -11,10 +11,9 @@
      Deference: the article the user pasted is the content. It is
      never taken off screen; our judgement arrives around it.
 
-     Honesty: this model reports ~99.9% confidence on almost every
-     input, including ones it gets wrong. The result is therefore
-     stated plainly rather than shouted, and the caveat is one
-     disclosure away instead of buried in a README.
+     Honesty: an AI verdict can be wrong. The result is stated
+     plainly rather than shouted, and the caveat is one disclosure
+     away instead of buried in a README.
      ============================================================ */
   :root {
     /* system greys, light */
@@ -31,6 +30,8 @@
     --danger-bg:    rgba(199,57,43,0.08);
     --success:      #2C7A4B;
     --success-bg:   rgba(44,122,75,0.08);
+    --warn:         #9A6700;
+    --warn-bg:      rgba(154,103,0,0.09);
 
     /* type scale (iOS text styles) */
     --t-large:    34px;
@@ -71,6 +72,8 @@
       --danger-bg:  rgba(255,105,97,0.14);
       --success:    #4FD26F;
       --success-bg: rgba(79,210,111,0.14);
+      --warn:       #FFB340;
+      --warn-bg:    rgba(255,179,64,0.14);
     }
   }
 
@@ -141,12 +144,14 @@
   }
   .card[data-verdict="FAKE"] { background: var(--danger-bg); }
   .card[data-verdict="REAL"] { background: var(--success-bg); }
+  .card[data-verdict="UNCERTAIN"] { background: var(--warn-bg); }
 
   .card-head { display: flex; gap: var(--s4); align-items: flex-start; }
 
   .glyph { flex: 0 0 auto; margin-top: 1px; }
   .card[data-verdict="FAKE"] .glyph { color: var(--danger); }
   .card[data-verdict="REAL"] .glyph { color: var(--success); }
+  .card[data-verdict="UNCERTAIN"] .glyph { color: var(--warn); }
 
   .verdict {
     margin: 0;
@@ -157,6 +162,7 @@
   }
   .card[data-verdict="FAKE"] .verdict { color: var(--danger); }
   .card[data-verdict="REAL"] .verdict { color: var(--success); }
+  .card[data-verdict="UNCERTAIN"] .verdict { color: var(--warn); }
 
   .verdict-sub {
     margin: var(--s1) 0 0;
@@ -181,6 +187,7 @@
   }
   .card[data-verdict="FAKE"] .meter { color: var(--danger); }
   .card[data-verdict="REAL"] .meter { color: var(--success); }
+  .card[data-verdict="UNCERTAIN"] .meter { color: var(--warn); }
 
   /* honest caveat, one disclosure away */
   details {
@@ -341,8 +348,8 @@
 <main>
   <h1>Check an article</h1>
   <p class="subtitle">
-    Paste a news story below. It is compared against patterns learned from
-    thousands of labelled articles.
+    Paste a news story below. An AI model reads it, checks the claim with
+    Google Search, and says how sure it is.
   </p>
 
   <section id="result" class="result" hidden aria-live="polite">
@@ -400,11 +407,17 @@ const GLYPH = {
         '<circle cx="13" cy="13" r="11" stroke="currentColor" stroke-width="1.8"/>' +
         '<path d="M8.5 13.4l3 3 6-6.4" stroke="currentColor" stroke-width="1.8" ' +
         'stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  UNCERTAIN: '<svg width="26" height="26" viewBox="0 0 26 26" fill="none" aria-hidden="true">' +
+        '<circle cx="13" cy="13" r="11" stroke="currentColor" stroke-width="1.8"/>' +
+        '<path d="M10 10.2a3 3 0 1 1 4.2 2.7c-.8.4-1.2.9-1.2 1.8" stroke="currentColor" ' +
+        'stroke-width="1.8" stroke-linecap="round"/>' +
+        '<circle cx="13" cy="18.3" r="1.15" fill="currentColor"/></svg>',
 };
 
 const COPY = {
-  FAKE: "Reads like fabricated news",
-  REAL: "Reads like genuine reporting",
+  FAKE: "Likely fake news",
+  REAL: "Likely real news",
+  UNCERTAIN: "Hard to tell",
 };
 
 function countWords(value) {
@@ -454,25 +467,20 @@ async function analyse() {
 }
 
 function render(data) {
-  const percent = Math.round(data.confidence * 100);
+  const percent = Math.round(data.confidence);
 
   el("card").dataset.verdict = data.verdict;
   el("glyph").innerHTML = GLYPH[data.verdict];
   el("verdict").textContent = COPY[data.verdict];
   el("verdictSub").textContent = percent + "% confidence";
 
-  /* State the number, then immediately qualify it. This model returns
-     near-total confidence on almost every input, so an unqualified
-     percentage would read as precision it does not have. */
   el("caveat").textContent =
-    "It judges writing style, not facts — it cannot check whether a claim is " +
-    "true. It also reports around " + percent + "% on almost every article, " +
-    "including ones it gets wrong, so read this as a signal worth checking, " +
-    "not a verdict.";
+    "This is an AI assessment and it can be wrong. The confidence is the " +
+    "model's own estimate, not a measured accuracy. Check important stories " +
+    "against trusted sources before sharing.";
 
-  el("cardMeta").textContent =
-    (data.served_by === "hf_api" ? "Hugging Face Inference" : "Local model") +
-    " · " + data.latency_ms + " ms";
+  el("cardMeta").textContent = data.model + " · " + (data.latency_ms / 1000).toFixed(1) + " s · " +
+    (data.grounded ? "checked with Google Search" : "no live search");
 
   result.hidden = false;
   result.classList.remove("enter");

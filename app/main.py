@@ -1,14 +1,12 @@
 import json
 import logging
-import threading
-from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from app import classifier
+from app.detector import DetectorError, FakeNewsDetector
 
 def _setup_logging():
     """Own our loggers explicitly.
@@ -20,7 +18,7 @@ def _setup_logging():
     """
     handler = logging.StreamHandler()
     handler.setFormatter(logging.Formatter("%(levelname)s:%(name)s:%(message)s"))
-    for name in ("app", "classifier"):
+    for name in ("app", "detector"):
         logger = logging.getLogger(name)
         logger.setLevel(logging.INFO)
         logger.handlers = [handler]
@@ -37,23 +35,18 @@ SAMPLES_FILE = BASE_DIR.parent / "samples" / "examples.json"
 MIN_CHARS = 40
 
 
-@asynccontextmanager
-async def lifespan(_app):
-    # Loading the local model takes ~60s the first time. Do it in the
-    # background at boot so it is never paid for mid-demo, and keep the
-    # server responsive while it happens.
-    def warm():
-        try:
-            classifier.warm_local()
-            log.info("local fallback model ready")
-        except Exception as exc:
-            log.warning("could not warm local model: %s", exc)
-
-    threading.Thread(target=warm, daemon=True).start()
-    yield
+detector = None
 
 
-app = FastAPI(title="Fake News Detection", lifespan=lifespan)
+def get_detector():
+    # Built lazily so a missing key surfaces as a readable API error, not a crash at boot.
+    global detector
+    if detector is None:
+        detector = FakeNewsDetector()
+    return detector
+
+
+app = FastAPI(title="Fake News Detection")
 
 
 class AnalyzeRequest(BaseModel):
@@ -78,4 +71,8 @@ def analyze(payload: AnalyzeRequest):
             status_code=422,
             detail=f"Need at least {MIN_CHARS} characters to classify.",
         )
-    return classifier.analyze(text)
+    try:
+        return get_detector().analyze(text)
+    except DetectorError as exc:
+        log.error("analysis failed: %s", exc)
+        raise HTTPException(status_code=502, detail=str(exc))
