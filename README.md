@@ -14,7 +14,7 @@ about the claim and checks it against live Google Search results.
 ## Setup
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements-local.txt   # requirements.txt is enough to just run the app
 cp .env.example .env        # then paste your Gemini key into .env
 ```
 
@@ -73,9 +73,23 @@ reported separately and counts as not matching the label.
   cutoff, so keep it on for current news.
 - Needs internet and an API key. Read the result as a signal, not a verdict.
 
+## Deploy to Vercel
+
+The repository is ready for [Vercel](https://vercel.com) (`vercel.json` and
+`api/index.py`).
+
+1. Push to GitHub and import the project into Vercel.
+2. In Project Settings -> Environment Variables add `GEMINI_API_KEY`
+   (and optionally `GEMINI_MODEL`, `USE_WEB_SEARCH`).
+
+Serverless functions have a time limit; a Gemini call takes a few seconds,
+longer with search on.
+
 ## Layout
 
 ```
+api/index.py          Vercel serverless entrypoint
+vercel.json           Vercel route configuration
 app/detector.py       Settings, GeminiClient, FakeNewsDetector
 app/main.py           FastAPI routes
 app/static/index.html the whole frontend

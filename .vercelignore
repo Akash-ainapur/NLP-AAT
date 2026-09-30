@@ -1,0 +1,9 @@
+nlpenv/
+.env
+data/
+results.csv
+__pycache__/
+*.pyc
+.git
+.claude/
+.kilo/

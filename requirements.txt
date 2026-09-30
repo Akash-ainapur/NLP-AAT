@@ -1,7 +1,6 @@
-# Minimums, not pins - these all work with newer versions too.
-fastapi>=0.115
-uvicorn[standard]>=0.34
-httpx>=0.27
-python-dotenv>=1.0
-scikit-learn>=1.5
-pandas>=2.2
+# Lightweight production requirements for Vercel deployment
+fastapi>=0.115.0
+uvicorn[standard]>=0.34.0
+httpx>=0.27.0
+python-dotenv>=1.0.0
+pydantic>=2.0.0
